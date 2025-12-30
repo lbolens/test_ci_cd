@@ -1,26 +1,55 @@
 name: Grepleaks Security Scan
 
-  on:
-    push:
-      branches: [main, master, develop]
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master]
 
-  jobs:
-    security-scan:
-      name: Security Scan
-      runs-on: ubuntu-latest
+jobs:
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
 
-      steps:
-        - name: Checkout code
-          uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-        - name: Create code archive
-          run: zip -r code.zip . -x ".git/*"
+      - name: Create code archive
+        run: zip -r code.zip . -x ".git/*"
 
-        - name: Run Grepleaks Scan
-          run: |
-            RESPONSE=$(curl -s -X POST \
-              -H "Authorization: Bearer ${{ secrets.GREPLEAKS_API_KEY }}" \
-              -F "file=@code.zip" \
-              http://72.62.60.91/api/v1/scan)
+      - name: Run Grepleaks Scan
+        id: scan
+        run: |
+          # Send code to Grepleaks API
+          RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.GREPLEAKS_API_KEY }}" \
+            -F "file=@code.zip" \
+            http://72.62.60.91/api/v1/scan)
 
-            echo "Response: $RESPONSE"
+          echo "Response: $RESPONSE"
+
+          # Extract results
+          SCORE=$(echo $RESPONSE | jq -r '.security_score // 0')
+          GRADE=$(echo $RESPONSE | jq -r '.grade // "N/A"')
+          FINDINGS=$(echo $RESPONSE | jq -r '.total_findings // 0')
+
+          # Set outputs for other steps
+          echo "security-score=$SCORE" >> $GITHUB_OUTPUT
+          echo "grade=$GRADE" >> $GITHUB_OUTPUT
+          echo "total-findings=$FINDINGS" >> $GITHUB_OUTPUT
+
+          # Display warning if findings
+          if [ "$FINDINGS" -gt 0 ]; then
+            echo "::warning::Found $FINDINGS security issues!"
+          fi
+
+      - name: Display Results
+        run: |
+          echo "========================================"
+          echo "       GREPLEAKS SECURITY REPORT"
+          echo "========================================"
+          echo "Security Score: ${{ steps.scan.outputs.security-score }}/100"
+          echo "Grade: ${{ steps.scan.outputs.grade }}"
+          echo "Total Findings: ${{ steps.scan.outputs.total-findings }}"
+          echo "========================================"
